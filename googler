@@ -2488,77 +2488,81 @@ def parse_args(args=None, namespace=None):
     return argparser.parse_args(args, namespace)
 
 
-def main():
+def main(args=None):
     global ua
 
+    opts = parse_args(args)
+
+    # Set logging level
+    if opts.debug:
+        logger.setLevel(logging.DEBUG)
+        logger.debug('googler version %s', _VERSION_)
+        logger.debug('Python version %s', python_version())
+
+    # Handle query completer
+    if opts.complete is not None:
+        completer_run(opts.complete)
+
+    # Handle self-upgrade
+    if hasattr(opts, 'upgrade') and opts.upgrade:
+        self_upgrade(include_git=opts.include_git)
+        sys.exit(0)
+
+    check_stdout_encoding()
+
+    if opts.keywords:
+        try:
+            # Add cmdline args to readline history
+            readline.add_history(' '.join(opts.keywords))
+        except Exception:
+            pass
+
+    # Set colors
+    if opts.colorize:
+        colors = Colors(*[COLORMAP[c] for c in opts.colorstr], reset=COLORMAP['x'])
+    else:
+        colors = None
+    Result.colors = colors
+    Result.urlexpand = True if os.getenv('DISABLE_URL_EXPANSION') is None else False
+    GooglerCmd.colors = colors
+
+    if opts.url_handler is not None:
+        open_url.url_handler = opts.url_handler
+    else:
+        # Set text browser override to False
+        open_url.override_text_browser = False
+
+        # Handle browser output suppression
+        if opts.show_browser_logs or (os.getenv('BROWSER') in text_browsers):
+            open_url.suppress_browser_output = False
+        else:
+            open_url.suppress_browser_output = True
+
+    if opts.noua:
+        logger.debug('User Agent is disabled')
+        ua = False
+
+    repl = GooglerCmd(opts)
+
+    if opts.json or opts.lucky or opts.noninteractive:
+        # Non-interactive mode
+        repl.fetch()
+        if opts.lucky:
+            if repl.results:
+                open_url(repl.results[0].url)
+            else:
+                print('No results.', file=sys.stderr)
+        else:
+            repl.display_results(prelude='', json_output=opts.json)
+            return repl.results
+    else:
+        # Interactive mode
+        repl.cmdloop()
+
+
+if __name__ == '__main__':
     try:
-        opts = parse_args()
-
-        # Set logging level
-        if opts.debug:
-            logger.setLevel(logging.DEBUG)
-            logger.debug('googler version %s', _VERSION_)
-            logger.debug('Python version %s', python_version())
-
-        # Handle query completer
-        if opts.complete is not None:
-            completer_run(opts.complete)
-
-        # Handle self-upgrade
-        if hasattr(opts, 'upgrade') and opts.upgrade:
-            self_upgrade(include_git=opts.include_git)
-            sys.exit(0)
-
-        check_stdout_encoding()
-
-        if opts.keywords:
-            try:
-                # Add cmdline args to readline history
-                readline.add_history(' '.join(opts.keywords))
-            except Exception:
-                pass
-
-        # Set colors
-        if opts.colorize:
-            colors = Colors(*[COLORMAP[c] for c in opts.colorstr], reset=COLORMAP['x'])
-        else:
-            colors = None
-        Result.colors = colors
-        Result.urlexpand = True if os.getenv('DISABLE_URL_EXPANSION') is None else False
-        GooglerCmd.colors = colors
-
-        if opts.url_handler is not None:
-            open_url.url_handler = opts.url_handler
-        else:
-            # Set text browser override to False
-            open_url.override_text_browser = False
-
-            # Handle browser output suppression
-            if opts.show_browser_logs or (os.getenv('BROWSER') in text_browsers):
-                open_url.suppress_browser_output = False
-            else:
-                open_url.suppress_browser_output = True
-
-        if opts.noua:
-            logger.debug('User Agent is disabled')
-            ua = False
-
-        repl = GooglerCmd(opts)
-
-        if opts.json or opts.lucky or opts.noninteractive:
-            # Non-interactive mode
-            repl.fetch()
-            if opts.lucky:
-                if repl.results:
-                    open_url(repl.results[0].url)
-                else:
-                    print('No results.', file=sys.stderr)
-            else:
-                repl.display_results(prelude='', json_output=opts.json)
-            sys.exit(0)
-        else:
-            # Interactive mode
-            repl.cmdloop()
+        results = main()
     except Exception as e:
         # With debugging on, let the exception through for a traceback;
         # otherwise, only print the exception error message.
@@ -2567,6 +2571,4 @@ def main():
         else:
             logger.error(e)
             sys.exit(1)
-
-if __name__ == '__main__':
-    main()
+    sys.exit(0)
